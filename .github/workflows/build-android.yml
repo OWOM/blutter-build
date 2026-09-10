@@ -1,20 +1,15 @@
 name: build-blutter-android
 on:
   workflow_dispatch:
-    inputs:
-      dart_version:
-        description: 'Dart 版本 (如 3.1.5 / 3.2.6 / 3.3.4)'
-        required: true
-        default: '3.1.5'
-      snapshot_hash:
-        description: '快照哈希(可选)'
-        required: false
-        default: ''
 
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        dart_version: [3.0.0, 3.0.1, 3.0.2, 3.0.3, 3.0.4, 3.0.5, 3.0.6, 3.0.7, 3.1.0, 3.1.1, 3.1.2, 3.1.3, 3.1.4, 3.1.6, 3.1.7, 3.1.8, 3.2.0, 3.2.1, 3.2.2, 3.2.3, 3.2.4, 3.2.5, 3.2.6, 3.2.7, 3.3.0, 3.3.1, 3.3.2, 3.3.3, 3.3.4, 3.13.0, 3.13.1]
     steps:
       - name: 安装依赖
         run: |
@@ -28,13 +23,7 @@ jobs:
       - name: 编译 Dart VM
         working-directory: blutter
         run: |
-          VER="${{ github.event.inputs.dart_version }}"
-          HASH="${{ github.event.inputs.snapshot_hash }}"
-          if [ -n "$HASH" ]; then
-            python3 dartvm_fetch_build.py "$VER" android arm64 "$HASH"
-          else
-            python3 dartvm_fetch_build.py "$VER" android arm64
-          fi
+          python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64
 
       - name: 生成 frida_template.h
         working-directory: blutter
@@ -51,7 +40,7 @@ jobs:
       - name: 编译 Blutter
         working-directory: blutter/blutter
         run: |
-          VER="${{ github.event.inputs.dart_version }}"
+          VER="${{ matrix.dart_version }}"
           LIB="dartvm${VER}_android_arm64"
           MACROS="-DHAS_RECORD_TYPE=1"
           MINOR=$(echo "$VER" | cut -d. -f2)
@@ -65,7 +54,7 @@ jobs:
       - name: 打包
         working-directory: blutter
         run: |
-          VER="${{ github.event.inputs.dart_version }}"
+          VER="${{ matrix.dart_version }}"
           mkdir -p deploy/blutter_android/lib
           cp blutter/build/blutter_dartvm${VER}_android_arm64 deploy/blutter_android/
           cp /usr/lib/aarch64-linux-gnu/libcapstone.so.* deploy/blutter_android/lib/ 2>/dev/null || true
@@ -80,6 +69,6 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: blutter_dartvm_${{ github.event.inputs.dart_version }}_android_arm64
-          path: blutter/blutter_dartvm${{ github.event.inputs.dart_version }}_android_arm64.zip
+          name: blutter_dartvm_${{ matrix.dart_version }}_android_arm64
+          path: blutter/blutter_dartvm${{ matrix.dart_version }}_android_arm64.zip
           retention-days: 90
