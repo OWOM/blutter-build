@@ -39,7 +39,19 @@ jobs:
 
       - name: 应用 217 leaf runtime 修复
         working-directory: blutter
-        run: sed -i 's|INSN_ASSERT(il);|if (!il) {\n                if (insn.id() == ARM64_INS_LDR || insn.id() == ARM64_INS_LDUR) {\n                    ++insn;\n                    continue;\n                }\n                else {\n                    INSN_ASSERT(il);\n                }\n            }|' blutter/src/CodeAnalyzer_arm64.cpp
+        run: |
+          python3 - <<'PYEOF'
+          p = 'blutter/src/CodeAnalyzer_arm64.cpp'
+          s = open(p, encoding='utf-8').read()
+          old = '\t\t\tINSN_ASSERT(il);'
+          new = '''\t\t\tif (!il) {\t\t\t\tif (insn.id() == ARM64_INS_LDR || insn.id() == ARM64_INS_LDUR) {\t\t\t\t\t++insn;\t\t\t\t\tcontinue;\t\t\t\t}\t\t\t\telse {\t\t\t\t\tINSN_ASSERT(il);\t\t\t\t}\t\t\t}'''
+          if old in s:
+              s = s.replace(old, new, 1)
+              open(p, 'w', encoding='utf-8').write(s)
+              print('patch applied')
+          else:
+              print('pattern not found, count:', s.count('INSN_ASSERT(il)'))
+          PYEOF
 
       - name: 编译 Blutter
         working-directory: blutter/blutter
