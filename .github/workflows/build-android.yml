@@ -17,8 +17,8 @@ jobs:
           sudo apt-get install -y g++-13 gcc-13 cmake ninja-build python3 python3-pip pkg-config libicu-dev libcapstone-dev xxd
           sudo pip3 install pyelftools requests
 
-      - name: 克隆源码
-        run: git clone --depth 1 https://github.com/AcE77505/blutter-standalone.git blutter
+      - name: 克隆源码 (PR #213 含 Dart 3.13 补丁)
+        run: git clone --depth 1 -b feat/dart-3.13-support https://github.com/Techuouo520/blutter.git blutter
 
       - name: 编译 Dart VM
         working-directory: blutter
@@ -35,32 +35,6 @@ jobs:
           h = '#pragma once\n#include <string_view>\nstatic const std::string_view kFridaTemplate = ' + esc + ';\n'
           open('blutter/src/frida_template.h', 'w', encoding='utf-8').write(h)
           print('frida_template.h generated:', len(js), 'chars')
-          PYEOF
-
-      - name: 3.13 兼容补丁
-        working-directory: blutter
-        run: |
-          python3 - <<'PYEOF'
-          p1 = 'blutter/src/DartStub.h'
-          s = open(p1, encoding='utf-8').read()
-          old1 = '#define DO(member, name) name ## Stub,\n\t\tOBJECT_STORE_STUB_CODE_LIST(DO)\n#undef DO'
-          new1 = '#ifdef OBJECT_STORE_STUB_CODE_LIST\n#define DO(member, name) name ## Stub,\n\t\tOBJECT_STORE_STUB_CODE_LIST(DO)\n#undef DO\n#endif'
-          if old1 in s:
-              s = s.replace(old1, new1)
-              open(p1, 'w', encoding='utf-8').write(s)
-              print('DartStub.h patched')
-          else:
-              print('DartStub.h pattern not found')
-          p2 = 'blutter/src/DartApp.cpp'
-          s = open(p2, encoding='utf-8').read()
-          old2 = '\tOBJECT_STORE_STUB_CODE_LIST(DO);'
-          new2 = '#ifdef OBJECT_STORE_STUB_CODE_LIST\n\tOBJECT_STORE_STUB_CODE_LIST(DO);\n#endif'
-          if old2 in s:
-              s = s.replace(old2, new2)
-              open(p2, 'w', encoding='utf-8').write(s)
-              print('DartApp.cpp patched')
-          else:
-              print('DartApp.cpp pattern not found')
           PYEOF
 
       - name: 编译 Blutter
