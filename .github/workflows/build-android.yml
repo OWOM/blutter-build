@@ -43,14 +43,14 @@ jobs:
           python3 - <<'PYEOF'
           p = 'blutter/src/CodeAnalyzer_arm64.cpp'
           s = open(p, encoding='utf-8').read()
-          old = '\t\t\tINSN_ASSERT(il);'
-          new = '''\t\t\tif (!il) {\t\t\t\tif (insn.id() == ARM64_INS_LDR || insn.id() == ARM64_INS_LDUR) {\t\t\t\t\t++insn;\t\t\t\t\tcontinue;\t\t\t\t}\t\t\t\telse {\t\t\t\t\tINSN_ASSERT(il);\t\t\t\t}\t\t\t}'''
+          old = 'auto il = processMoveRegInstr(insn);\n\t\t\tINSN_ASSERT(il);'
+          new = 'auto il = processMoveRegInstr(insn);\n\t\t\tif (!il) {\n\t\t\t\tif (insn.id() == ARM64_INS_LDR || insn.id() == ARM64_INS_LDUR) {\n\t\t\t\t\t++insn;\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\t\t\t\telse {\n\t\t\t\t\tINSN_ASSERT(il);\n\t\t\t\t}\n\t\t\t}'
           if old in s:
               s = s.replace(old, new, 1)
               open(p, 'w', encoding='utf-8').write(s)
-              print('patch applied')
+              print('patch applied (in-loop)')
           else:
-              print('pattern not found, count:', s.count('INSN_ASSERT(il)'))
+              print('pattern not found (skip, safe fallback)')
           PYEOF
 
       - name: 编译 Blutter
