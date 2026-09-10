@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dart_version: [3.0.0, 3.0.1, 3.0.2, 3.0.3, 3.0.4, 3.0.5, 3.0.6, 3.0.7, 3.1.0, 3.1.1, 3.1.2, 3.1.3, 3.1.4, 3.1.6, 3.1.7, 3.1.8, 3.2.0, 3.2.1, 3.2.2, 3.2.3, 3.2.4, 3.2.5, 3.2.6, 3.2.7, 3.3.0, 3.3.1, 3.3.2, 3.3.3, 3.3.4, 3.13.0, 3.13.1]
+        dart_version: [3.13.0, 3.13.1]
     steps:
       - name: 安装依赖
         run: |
@@ -35,6 +35,32 @@ jobs:
           h = '#pragma once\n#include <string_view>\nstatic const std::string_view kFridaTemplate = ' + esc + ';\n'
           open('blutter/src/frida_template.h', 'w', encoding='utf-8').write(h)
           print('frida_template.h generated:', len(js), 'chars')
+          PYEOF
+
+      - name: 3.13 兼容补丁
+        working-directory: blutter
+        run: |
+          python3 - <<'PYEOF'
+          p1 = 'blutter/src/DartStub.h'
+          s = open(p1, encoding='utf-8').read()
+          old1 = '#define DO(member, name) name ## Stub,\n\t\tOBJECT_STORE_STUB_CODE_LIST(DO)\n#undef DO'
+          new1 = '#ifdef OBJECT_STORE_STUB_CODE_LIST\n#define DO(member, name) name ## Stub,\n\t\tOBJECT_STORE_STUB_CODE_LIST(DO)\n#undef DO\n#endif'
+          if old1 in s:
+              s = s.replace(old1, new1)
+              open(p1, 'w', encoding='utf-8').write(s)
+              print('DartStub.h patched')
+          else:
+              print('DartStub.h pattern not found')
+          p2 = 'blutter/src/DartApp.cpp'
+          s = open(p2, encoding='utf-8').read()
+          old2 = '\tOBJECT_STORE_STUB_CODE_LIST(DO);'
+          new2 = '#ifdef OBJECT_STORE_STUB_CODE_LIST\n\tOBJECT_STORE_STUB_CODE_LIST(DO);\n#endif'
+          if old2 in s:
+              s = s.replace(old2, new2)
+              open(p2, 'w', encoding='utf-8').write(s)
+              print('DartApp.cpp patched')
+          else:
+              print('DartApp.cpp pattern not found')
           PYEOF
 
       - name: 编译 Blutter
