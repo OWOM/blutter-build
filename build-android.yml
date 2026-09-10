@@ -1,0 +1,99 @@
+name: build-blutter-android
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        dart_version: [3.13.0, 3.13.1]
+    steps:
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 gcc-13 cmake ninja-build python3 python3-pip pkg-config libicu-dev libcapstone-dev xxd
+          sudo pip3 install pyelftools requests
+
+      - name: 克隆源码 (PR 213)
+        run: git clone --depth 1 -b feat/dart-3.13-support https://github.com/Techuouo520/blutter.git blutter
+
+      - name: 编译 Dart VM
+        working-directory: blutter
+        run: |
+          python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64
+
+      - name: 生成 frida_template.h
+        working-directory: blutter
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          js = open('scripts/frida.template.js', encoding='utf-8').read()
+          esc = json.dumps(js)
+          h = '#pragma once\n#include <string_view>\nstatic const std::string_view kFridaTemplate = ' + esc + ';\n'
+          open('blutter/src/frida_template.h', 'w', encoding='utf-8').write(h)
+          print('frida_template.h generated:', len(js), 'chars')
+          PYEOF
+
+      - name: 应用 217 leaf runtime 修复
+        working-directory: blutter
+        run: |
+          python3 - <<'PYEOF'
+          p = 'blutter/src/CodeAnalyzer_arm64.cpp'
+          s = open(p, encoding='utf-8').read()
+          old = '\t\t\tINSN_ASSERT(il);'
+          new = '''\t\t\tif (!il) {
+\t\t\t\tif (insn.id() == ARM64_INS_LDR || insn.id() == ARM64_INS_LDUR) {
+\t\t\t\t\t++insn;
+\t\t\t\t\tcontinue;
+\t\t\t\t}
+\t\t\t\telse {
+\t\t\t\t\tINSN_ASSERT(il);
+\t\t\t\t}
+\t\t\t}'''
+          if old in s:
+              s = s.replace(old, new, 1)
+              open(p, 'w', encoding='utf-8').write(s)
+              print('patch applied')
+          else:
+              print('pattern not found, count:', s.count('INSN_ASSERT(il)'))
+          PYEOF
+
+      - name: 编译 Blutter
+        working-directory: blutter/blutter
+        run: |
+          VER="${{ matrix.dart_version }}"
+          LIB="dartvm${VER}_android_arm64"
+          MACROS="-DHAS_RECORD_TYPE=1"
+          MINOR=$(echo "$VER" | cut -d. -f2)
+          if [ "$MINOR" -ge 4 ]; then MACROS="$MACROS -DNO_METHOD_EXTRACTOR_STUB=1"; fi
+          if [ "$MINOR" -ge 6 ]; then MACROS="$MACROS -DUNIFORM_INTEGER_ACCESS=1"; fi
+          cmake -GNinja -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++-13 -DCMAKE_C_COMPILER=gcc-13 \
+            -DDARTLIB="$LIB" $MACROS
+          ninja -C build
+
+      - name: 打包
+        working-directory: blutter
+        run: |
+          VER="${{ matrix.dart_version }}"
+          mkdir -p deploy/blutter_android/lib
+          cp blutter/build/blutter_dartvm${VER}_android_arm64 deploy/blutter_android/
+          cp /usr/lib/aarch64-linux-gnu/libcapstone.so.* deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libicuuc.so.* deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libicudata.so.* deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libstdc++.so.6 deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libgcc_s.so.1 deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libc.so.6 deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libm.so.6 deploy/blutter_android/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 deploy/blutter_android/lib/ 2>/dev/null || true
+          cd deploy && zip -r ../blutter_dartvm${VER}_android_arm64.zip blutter_android/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: blutter_dartvm_${{ matrix.dart_version }}_android_arm64
+          path: blutter/blutter_dartvm${{ matrix.dart_version }}_android_arm64.zip
+          retention-days: 90
