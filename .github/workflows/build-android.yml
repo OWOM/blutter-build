@@ -19,7 +19,7 @@ jobs:
       - name: 安装依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13 gcc-13 cmake ninja-build python3 python3-pip pkg-config libicu-dev libcapstone-dev
+          sudo apt-get install -y g++-13 gcc-13 cmake ninja-build python3 python3-pip pkg-config libicu-dev libcapstone-dev xxd
           sudo pip3 install pyelftools requests
 
       - name: 克隆源码
@@ -35,6 +35,18 @@ jobs:
           else
             python3 dartvm_fetch_build.py "$VER" android arm64
           fi
+
+      - name: 生成 frida_template.h
+        working-directory: blutter
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          js = open('scripts/frida.template.js', encoding='utf-8').read()
+          esc = json.dumps(js)
+          h = '#pragma once\n#include <string_view>\nstatic const std::string_view kFridaTemplate = ' + esc + ';\n'
+          open('blutter/src/frida_template.h', 'w', encoding='utf-8').write(h)
+          print('frida_template.h generated:', len(js), 'chars')
+          PYEOF
 
       - name: 编译 Blutter
         working-directory: blutter/blutter
