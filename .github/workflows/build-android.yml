@@ -22,42 +22,46 @@ jobs:
       - name: 克隆源码 (standalone)
         run: git clone --depth 1 https://github.com/AcE77505/blutter-standalone.git blutter
 
-      - name: 手动准备 Dart 2.19.2 源码 + Flutter flags 补丁
+      - name: 写 patch_flags.py (编译前自动补 flag)
         working-directory: blutter
         run: |
-          mkdir -p dartsdk
-          git clone --depth 1 -b 2.19.2 --filter=blob:none --sparse https://github.com/dart-lang/sdk.git dartsdk/v2.19.2
-          cd dartsdk/v2.19.2
-          git sparse-checkout set runtime tools third_party/double-conversion
-          python3 - <<'PYEOF'
+          cat > patch_flags.py <<'PYEOF'
+          import os
           import re
-          p = "runtime/vm/flag_list.h"
-          s = open(p, encoding="utf-8").read()
-          # 1) lazy_dispatchers 行(吃掉尾随\和空格) → 追加 kbc_keep + enable_aion
-          pat1 = r'(P\(lazy_dispatchers, bool, true, "Generate dispatchers lazily"\))\s*\\?\s*\n'
-          rep1 = r'\1 \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion") \\\n'
-          s2, n1 = re.subn(pat1, rep1, s, count=1)
-          if n1:
-              s = s2
-              print("flag1 kbc_keep+enable_aion OK")
-          else:
-              print("flag1 pattern missing")
-          # 2) dedup_instructions 注释行后 → 追加 llvm_compiler
-          pat2 = r'("Canonicalize instructions when precompiling\."\))\s*\\?\s*\n'
-          rep2 = r'\1 \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")\n'
-          s2, n2 = re.subn(pat2, rep2, s, count=1)
-          if n2:
-              s = s2
-              print("flag2 llvm_compiler OK")
-          else:
-              print("flag2 pattern missing")
-          open(p, "w", encoding="utf-8").write(s)
+          def patch_flags(dir_path):
+              fp = os.path.join(dir_path, 'runtime', 'vm', 'flag_list.h')
+              s = open(fp, encoding='utf-8').read()
+              pat1 = r'(P\(lazy_dispatchers, bool, true, "Generate dispatchers lazily"\))\s*\\?\s*\n'
+              rep1 = r'\1 \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion") \\\n'
+              s, n1 = re.subn(pat1, rep1, s, count=1)
+              print('flag1 kbc_keep+enable_aion', 'OK' if n1 else 'MISSING')
+              pat2 = r'("Canonicalize instructions when precompiling\."\))\s*\\?\s*\n'
+              rep2 = r'\1 \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")\n'
+              s, n2 = re.subn(pat2, rep2, s, count=1)
+              print('flag2 llvm_compiler', 'OK' if n2 else 'MISSING')
+              open(fp, 'w', encoding='utf-8').write(s)
           PYEOF
-          echo "=== 验证补丁 ==="
-          grep -n kbc_keep runtime/vm/flag_list.h
-          grep -n llvm_compiler runtime/vm/flag_list.h
+          echo "patch_flags.py written"
+          grep -c "patch_flags" patch_flags.py
 
-      - name: 编译 Dart VM (跳过 checkout, 用已补丁源码)
+      - name: 打补丁 dartvm_fetch_build.py (checkout 后自动执行)
+        working-directory: blutter
+        run: |
+          python3 - <<'PYEOF'
+          p = 'dartvm_fetch_build.py'
+          s = open(p, encoding='utf-8').read()
+          old = 'def fetch_and_build(info: DartLibInfo):\n    outdir = checkout_dart(info)'
+          new = 'def fetch_and_build(info: DartLibInfo):\n    outdir = checkout_dart(info)\n    import patch_flags\n    patch_flags.patch_flags(outdir)'
+          if old in s:
+              s = s.replace(old, new, 1)
+              print('fetch_and_build patched OK')
+          else:
+              print('anchor missing!')
+          open(p, 'w', encoding='utf-8').write(s)
+          PYEOF
+          grep -n "patch_flags" dartvm_fetch_build.py
+
+      - name: 编译 Dart VM (自动 checkout + 自动补 flag)
         working-directory: blutter
         run: |
           python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64 ${{ matrix.snapshot_hash }}
