@@ -22,39 +22,34 @@ jobs:
       - name: 克隆源码 (standalone)
         run: git clone --depth 1 https://github.com/AcE77505/blutter-standalone.git blutter
 
-      - name: 编译 Dart VM (带目标 snapshot hash + Flutter flags 补丁)
+      - name: 编译 Dart VM (带目标 snapshot hash)
         working-directory: blutter
         run: |
           python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64 ${{ matrix.snapshot_hash }}
-          # 给 Dart VM flag_list.h 加 Flutter 定制 flag, 让 FeaturesString 匹配目标
-          FLAGS=/home/runner/work/blutter-build/blutter-build/blutter/dartsdk/v${{ matrix.dart_version }}/runtime/vm/flag_list.h
-          if [ -f "$FLAGS" ]; then
-            python3 - <<'PYEOF'
-            import re
-            p = "/home/runner/work/blutter-build/blutter-build/blutter/dartsdk/v2.19.2/runtime/vm/flag_list.h"
-            s = open(p, encoding='utf-8').read()
-            # 1) lazy_dispatchers 后加 kbc_keep(false) + enable_aion(true)
-            old1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily")'
-            new1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily") \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion")'
-            if old1 in s:
-                s = s.replace(old1, new1, 1)
-                print('flag1 kbc_keep+enable_aion added')
-            else:
-                print('flag1 pattern not found')
-            # 2) dedup_instructions 后加 llvm_compiler(true)
-            old2 = '"Canonicalize instructions when precompiling.")'
-            new2 = '"Canonicalize instructions when precompiling.") \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")'
-            if old2 in s:
-                s = s.replace(old2, new2, 1)
-                print('flag2 llvm_compiler added')
-            else:
-                print('flag2 pattern not found')
-            open(p, 'w', encoding='utf-8').write(s)
-            PYEOF
-          else
-            echo "FLAGS file not found: $FLAGS"
-            find /home/runner/work -name flag_list.h 2>/dev/null | head
-          fi
+
+      - name: Flutter flags 补丁 (flag_list.h)
+        working-directory: blutter/dartsdk/v2.19.2
+        run: |
+          python3 - <<'PYEOF'
+          import re
+          p = 'runtime/vm/flag_list.h'
+          s = open(p, encoding='utf-8').read()
+          old1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily")'
+          new1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily") \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion")'
+          if old1 in s:
+              s = s.replace(old1, new1, 1)
+              print('flag1 kbc_keep+enable_aion added')
+          else:
+              print('flag1 pattern not found')
+          old2 = '"Canonicalize instructions when precompiling.")'
+          new2 = '"Canonicalize instructions when precompiling.") \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")'
+          if old2 in s:
+              s = s.replace(old2, new2, 1)
+              print('flag2 llvm_compiler added')
+          else:
+              print('flag2 pattern not found')
+          open(p, 'w', encoding='utf-8').write(s)
+          PYEOF
 
       - name: 生成 frida_template.h
         working-directory: blutter
