@@ -22,34 +22,40 @@ jobs:
       - name: 克隆源码 (standalone)
         run: git clone --depth 1 https://github.com/AcE77505/blutter-standalone.git blutter
 
-      - name: 编译 Dart VM (带目标 snapshot hash)
+      - name: 手动准备 Dart 2.19.2 源码 + Flutter flags 补丁
+        working-directory: blutter
+        run: |
+          mkdir -p dartsdk
+          git clone --depth 1 -b 2.19.2 --filter=blob:none --sparse https://github.com/dart-lang/sdk.git dartsdk/v2.19.2
+          cd dartsdk/v2.19.2
+          git sparse-checkout set runtime tools third_party/double-conversion
+          python3 - <<'PYEOF'
+          p = "runtime/vm/flag_list.h"
+          s = open(p, encoding="utf-8").read()
+          o1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily")'
+          n1 = o1 + ' \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion")'
+          if o1 in s:
+              s = s.replace(o1, n1, 1)
+              print("flag1 kbc_keep+enable_aion OK")
+          else:
+              print("flag1 pattern missing")
+          o2 = '"Canonicalize instructions when precompiling.")'
+          n2 = o2 + ' \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")'
+          if o2 in s:
+              s = s.replace(o2, n2, 1)
+              print("flag2 llvm_compiler OK")
+          else:
+              print("flag2 pattern missing")
+          open(p, "w", encoding="utf-8").write(s)
+          PYEOF
+          echo "flag_list.h patched"
+          grep -c kbc_keep runtime/vm/flag_list.h
+          grep -c llvm_compiler runtime/vm/flag_list.h
+
+      - name: 编译 Dart VM (跳过 checkout, 用已补丁源码)
         working-directory: blutter
         run: |
           python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64 ${{ matrix.snapshot_hash }}
-
-      - name: Flutter flags 补丁 (flag_list.h)
-        working-directory: blutter/dartsdk/v2.19.2
-        run: |
-          python3 - <<'PYEOF'
-          import re
-          p = 'runtime/vm/flag_list.h'
-          s = open(p, encoding='utf-8').read()
-          old1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily")'
-          new1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily") \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion")'
-          if old1 in s:
-              s = s.replace(old1, new1, 1)
-              print('flag1 kbc_keep+enable_aion added')
-          else:
-              print('flag1 pattern not found')
-          old2 = '"Canonicalize instructions when precompiling.")'
-          new2 = '"Canonicalize instructions when precompiling.") \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")'
-          if old2 in s:
-              s = s.replace(old2, new2, 1)
-              print('flag2 llvm_compiler added')
-          else:
-              print('flag2 pattern not found')
-          open(p, 'w', encoding='utf-8').write(s)
-          PYEOF
 
       - name: 生成 frida_template.h
         working-directory: blutter
@@ -74,7 +80,7 @@ jobs:
           s2, n = re.subn(pat, 'typeParam.IsFunctionTypeParameter()', s)
           if n > 0:
               open(p, 'w', encoding='utf-8').write(s2)
-              print('owner patch applied (%d hits)' % n)
+              print('owner patch applied')
           else:
               print('owner pattern not found')
           PYEOF
