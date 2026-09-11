@@ -9,7 +9,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dart_version: [2.19.2]
+        include:
+          - dart_version: 2.19.2
+            snapshot_hash: f08b3f26b90031c53c19961dd81f0bd3
     steps:
       - name: 安装依赖
         run: |
@@ -20,10 +22,10 @@ jobs:
       - name: 克隆源码 (standalone)
         run: git clone --depth 1 https://github.com/AcE77505/blutter-standalone.git blutter
 
-      - name: 编译 Dart VM
+      - name: 编译 Dart VM (带目标 snapshot hash)
         working-directory: blutter
         run: |
-          python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64
+          python3 dartvm_fetch_build.py ${{ matrix.dart_version }} android arm64 ${{ matrix.snapshot_hash }}
 
       - name: 生成 frida_template.h
         working-directory: blutter
@@ -44,17 +46,13 @@ jobs:
           import re
           p = 'blutter/src/DartTypes.cpp'
           s = open(p, encoding='utf-8').read()
-          # owner() 是 Dart 3.5+ API, 2.19 用 typeParam.IsFunctionTypeParameter() 等价替代
           pat = r'\(intptr_t\)\s*\w+\.untag\(\)\s*->\s*owner\(\)\s*==\s*0'
           s2, n = re.subn(pat, 'typeParam.IsFunctionTypeParameter()', s)
           if n > 0:
               open(p, 'w', encoding='utf-8').write(s2)
               print('owner patch applied (%d hits)' % n)
           else:
-              print('owner pattern not found, first 200 chars around line 240:')
-              lines = s.splitlines()
-              for i in range(235, min(250, len(lines))):
-                  print('  %d: %s' % (i+1, lines[i]))
+              print('owner pattern not found')
           PYEOF
 
       - name: 编译 Blutter
