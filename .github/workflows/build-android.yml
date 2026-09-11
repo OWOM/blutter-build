@@ -30,27 +30,32 @@ jobs:
           cd dartsdk/v2.19.2
           git sparse-checkout set runtime tools third_party/double-conversion
           python3 - <<'PYEOF'
+          import re
           p = "runtime/vm/flag_list.h"
           s = open(p, encoding="utf-8").read()
-          o1 = 'P(lazy_dispatchers, bool, true, "Generate dispatchers lazily")'
-          n1 = o1 + ' \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion")'
-          if o1 in s:
-              s = s.replace(o1, n1, 1)
+          # 1) lazy_dispatchers 行(吃掉尾随\和空格) → 追加 kbc_keep + enable_aion
+          pat1 = r'(P\(lazy_dispatchers, bool, true, "Generate dispatchers lazily"\))\s*\\?\s*\n'
+          rep1 = r'\1 \\\n  P(kbc_keep, bool, false, "Keep Kernel Binary Cache") \\\n  P(enable_aion, bool, true, "Enable Aion") \\\n'
+          s2, n1 = re.subn(pat1, rep1, s, count=1)
+          if n1:
+              s = s2
               print("flag1 kbc_keep+enable_aion OK")
           else:
               print("flag1 pattern missing")
-          o2 = '"Canonicalize instructions when precompiling.")'
-          n2 = o2 + ' \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")'
-          if o2 in s:
-              s = s.replace(o2, n2, 1)
+          # 2) dedup_instructions 注释行后 → 追加 llvm_compiler
+          pat2 = r'("Canonicalize instructions when precompiling\."\))\s*\\?\s*\n'
+          rep2 = r'\1 \\\n  P(llvm_compiler, bool, true, "Use LLVM compiler")\n'
+          s2, n2 = re.subn(pat2, rep2, s, count=1)
+          if n2:
+              s = s2
               print("flag2 llvm_compiler OK")
           else:
               print("flag2 pattern missing")
           open(p, "w", encoding="utf-8").write(s)
           PYEOF
-          echo "flag_list.h patched"
-          grep -c kbc_keep runtime/vm/flag_list.h
-          grep -c llvm_compiler runtime/vm/flag_list.h
+          echo "=== 验证补丁 ==="
+          grep -n kbc_keep runtime/vm/flag_list.h
+          grep -n llvm_compiler runtime/vm/flag_list.h
 
       - name: 编译 Dart VM (跳过 checkout, 用已补丁源码)
         working-directory: blutter
